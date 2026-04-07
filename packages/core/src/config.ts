@@ -110,6 +110,21 @@ const SCMConfigSchema = z
         eventHeader: z.string().optional(),
         deliveryHeader: z.string().optional(),
         maxBodyBytes: z.number().int().positive().optional(),
+        autoImplement: z
+          .object({
+            enabled: z.boolean().default(false),
+            label: z.string().min(1).optional(),
+          })
+          .superRefine((value, ctx) => {
+            if (value.enabled && !value.label) {
+              ctx.addIssue({
+                code: z.ZodIssueCode.custom,
+                path: ["label"],
+                message: "SCM webhook autoImplement.label is required when enabled is true",
+              });
+            }
+          })
+          .optional(),
       })
       .optional(),
   })

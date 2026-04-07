@@ -8,7 +8,8 @@ import {
   type OrchestratorConfig,
   type PluginRegistry,
   type SCM,
-} from "@aoagents/ao-core";
+  type Tracker,
+} from "@composio/ao-core";
 import * as serialize from "@/lib/serialize";
 import { getSCM } from "@/lib/services";
 
@@ -146,9 +147,24 @@ const mockSCM: SCM = {
   })),
 };
 
+const mockTracker: Tracker = {
+  name: "github",
+  getIssue: vi.fn(),
+  isCompleted: vi.fn(async () => false),
+  issueUrl: vi.fn((identifier: string, project) => `https://github.com/${project.repo}/issues/${identifier}`),
+  issueLabel: vi.fn((url: string) => url),
+  branchName: vi.fn((identifier: string) => `feat/issue-${identifier}`),
+  generatePrompt: vi.fn(async (identifier: string) => `Issue ${identifier}`),
+  updateIssue: vi.fn(async () => {}),
+};
+
+const mockLifecycleManager = {
+  check: vi.fn(async () => {}),
+};
+
 const mockRegistry: PluginRegistry = {
   register: vi.fn(),
-  get: vi.fn(() => mockSCM) as PluginRegistry["get"],
+  get: vi.fn((slot: string) => (slot === "tracker" ? mockTracker : mockSCM)) as PluginRegistry["get"],
   list: vi.fn(() => []),
   loadBuiltins: vi.fn(async () => {}),
   loadFromConfig: vi.fn(async () => {}),
@@ -166,7 +182,17 @@ const mockConfig: OrchestratorConfig = {
       path: "/tmp/my-app",
       defaultBranch: "main",
       sessionPrefix: "my-app",
-      scm: { plugin: "github" },
+      scm: {
+        plugin: "github",
+        webhook: {
+          path: "/api/webhooks/github",
+          autoImplement: {
+            enabled: true,
+            label: "ao",
+          },
+        },
+      },
+      tracker: { plugin: "github" },
     },
     "docs-app": {
       name: "Docs App",
@@ -187,6 +213,7 @@ vi.mock("@/lib/services", () => ({
     config: mockConfig,
     registry: mockRegistry,
     sessionManager: mockSessionManager,
+    lifecycleManager: mockLifecycleManager,
   })),
   getVerifyIssues: vi.fn(async () => []),
   getSCM: vi.fn(() => mockSCM),
@@ -207,7 +234,7 @@ import { GET as eventsGET } from "@/app/api/events/route";
 import { GET as observabilityGET } from "@/app/api/observability/route";
 import { GET as runtimeTerminalGET } from "@/app/api/runtime/terminal/route";
 import { GET as verifyGET, POST as verifyPOST } from "@/app/api/verify/route";
-import { GET as patchesGET } from "@/app/api/sessions/patches/route";
+import { POST as webhookPOST } from "@/app/api/webhooks/[...slug]/route";
 
 function makeRequest(url: string, init?: RequestInit): NextRequest {
   return new NextRequest(
@@ -222,6 +249,9 @@ beforeEach(() => {
   (mockSessionManager.list as ReturnType<typeof vi.fn>).mockResolvedValue(testSessions);
   (mockSessionManager.get as ReturnType<typeof vi.fn>).mockImplementation(
     async (id: string) => testSessions.find((s) => s.id === id) ?? null,
+  );
+  (mockRegistry.get as ReturnType<typeof vi.fn>).mockImplementation((slot: string) =>
+    slot === "tracker" ? mockTracker : mockSCM,
   );
 });
 
@@ -455,6 +485,103 @@ describe("API Routes", () => {
     it("sets Cache-Control: no-store header", async () => {
       const res = await runtimeTerminalGET();
       expect(res.headers.get("Cache-Control")).toBe("no-store");
+    });
+  });
+
+  describe("POST /api/webhooks/[...slug]", () => {
+    function makeWebhookRequest(
+      body: Record<string, unknown>,
+      headers?: Record<string, string>,
+    ): Request {
+      return new Request("http://localhost:3000/api/webhooks/github", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-github-event": "issues",
+          "x-github-delivery": "delivery-1",
+          ...headers,
+        },
+        body: JSON.stringify(body),
+      });
+    }
+
+    beforeEach(() => {
+      mockSCM.verifyWebhook = vi.fn(async () => ({ ok: true, eventType: "issues", deliveryId: "delivery-1" }));
+      mockSCM.parseWebhook = vi.fn(async (request) => {
+        const payload = JSON.parse(request.body) as Record<string, unknown>;
+        const issue = payload["issue"] as Record<string, unknown> | undefined;
+        const label = payload["label"] as Record<string, unknown> | undefined;
+        return {
+          provider: "github",
+          kind: "issue",
+          action: typeof payload["action"] === "string" ? payload["action"] : "unknown",
+          rawEventType: "issues",
+          deliveryId: "delivery-1",
+          repository: { owner: "acme", name: "my-app" },
+          issueNumber: typeof issue?.["number"] === "number" ? (issue["number"] as number) : undefined,
+          issueLabel: typeof label?.["name"] === "string" ? (label["name"] as string) : undefined,
+          data: payload,
+        };
+      });
+    });
+
+    it("spawns a session when the ao label is added to an issue", async () => {
+      (mockSessionManager.list as ReturnType<typeof vi.fn>).mockResolvedValueOnce([]);
+
+      const res = await webhookPOST(
+        makeWebhookRequest({
+          action: "labeled",
+          issue: { number: 42 },
+          label: { name: "ao" },
+          repository: { owner: { login: "acme" }, name: "my-app" },
+        }),
+      );
+
+      expect(res.status).toBe(202);
+      expect(mockSessionManager.spawn).toHaveBeenCalledWith({ projectId: "my-app", issueId: "42" });
+      const data = await res.json();
+      expect(data.spawnedIssueIds).toEqual(["42"]);
+      expect(data.skippedDuplicateIssueIds).toEqual([]);
+    });
+
+    it("skips spawning when a live session already exists for the issue", async () => {
+      (mockSessionManager.list as ReturnType<typeof vi.fn>).mockResolvedValueOnce([
+        makeSession({ id: "worker-42", projectId: "my-app", issueId: "42", status: "working" }),
+      ]);
+
+      const res = await webhookPOST(
+        makeWebhookRequest({
+          action: "labeled",
+          issue: { number: 42 },
+          label: { name: "ao" },
+          repository: { owner: { login: "acme" }, name: "my-app" },
+        }),
+      );
+
+      expect(res.status).toBe(202);
+      expect(mockSessionManager.spawn).not.toHaveBeenCalled();
+      const data = await res.json();
+      expect(data.spawnedIssueIds).toEqual([]);
+      expect(data.skippedDuplicateIssueIds).toEqual(["42"]);
+    });
+
+    it("removes the ao label when the issue is closed", async () => {
+      const res = await webhookPOST(
+        makeWebhookRequest({
+          action: "closed",
+          issue: { number: 42 },
+          repository: { owner: { login: "acme" }, name: "my-app" },
+        }),
+      );
+
+      expect(res.status).toBe(202);
+      expect(mockTracker.updateIssue).toHaveBeenCalledWith(
+        "42",
+        { removeLabels: ["ao"] },
+        mockConfig.projects["my-app"],
+      );
+      const data = await res.json();
+      expect(data.cleanedIssueIds).toEqual(["42"]);
     });
   });
 

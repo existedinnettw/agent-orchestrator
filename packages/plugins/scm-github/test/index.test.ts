@@ -278,6 +278,56 @@ describe("scm-github plugin", () => {
       expect(event?.timestamp?.toISOString()).toBe("2026-03-10T12:00:00.000Z");
     });
 
+    it("parses labeled issue events for real issues", async () => {
+      const event = await scm.parseWebhook?.(
+        makeWebhookRequest({
+          headers: { "x-github-event": "issues" },
+          body: JSON.stringify({
+            action: "labeled",
+            repository: { owner: { login: "acme" }, name: "repo" },
+            issue: {
+              number: 77,
+              updated_at: "2026-03-10T12:00:00Z",
+            },
+            label: { name: "ao" },
+          }),
+        }),
+        project,
+      );
+
+      expect(event).toEqual(
+        expect.objectContaining({
+          provider: "github",
+          kind: "issue",
+          action: "labeled",
+          issueNumber: 77,
+          issueLabel: "ao",
+        }),
+      );
+      expect(event?.timestamp?.toISOString()).toBe("2026-03-10T12:00:00.000Z");
+    });
+
+    it("ignores issues events for pull request payloads", async () => {
+      const event = await scm.parseWebhook?.(
+        makeWebhookRequest({
+          headers: { "x-github-event": "issues" },
+          body: JSON.stringify({
+            action: "labeled",
+            repository: { owner: { login: "acme" }, name: "repo" },
+            issue: {
+              number: 77,
+              updated_at: "2026-03-10T12:00:00Z",
+              pull_request: { url: "https://api.github.com/repos/acme/repo/pulls/77" },
+            },
+            label: { name: "ao" },
+          }),
+        }),
+        project,
+      );
+
+      expect(event).toBeNull();
+    });
+
     it("parses status events with branch info", async () => {
       const event = await scm.parseWebhook?.(
         makeWebhookRequest({
