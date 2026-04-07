@@ -268,6 +268,27 @@ function parseGitHubRepository(payload: Record<string, unknown>) {
   return { owner, name };
 }
 
+function parseGitHubIssueNumber(payload: Record<string, unknown>): number | undefined {
+  const issue = payload["issue"];
+  if (!issue || typeof issue !== "object") return undefined;
+  const issueRecord = issue as Record<string, unknown>;
+  return typeof issueRecord["number"] === "number" ? issueRecord["number"] : undefined;
+}
+
+function isPullRequestIssuePayload(payload: Record<string, unknown>): boolean {
+  const issue = payload["issue"];
+  if (!issue || typeof issue !== "object") return false;
+  return "pull_request" in (issue as Record<string, unknown>);
+}
+
+function parseGitHubIssueLabel(payload: Record<string, unknown>): string | undefined {
+  const label = payload["label"];
+  if (!label || typeof label !== "object") return undefined;
+  return typeof (label as Record<string, unknown>)["name"] === "string"
+    ? ((label as Record<string, unknown>)["name"] as string)
+    : undefined;
+}
+
 function parseGitHubWebhookEvent(
   request: SCMWebhookRequest,
   payload: Record<string, unknown>,
@@ -354,6 +375,26 @@ function parseGitHubWebhookEvent(
       timestamp: parseWebhookTimestamp(
         (payload["comment"] as Record<string, unknown> | undefined)?.["updated_at"] ??
           (payload["comment"] as Record<string, unknown> | undefined)?.["created_at"],
+      ),
+      data: payload,
+    };
+  }
+
+  if (rawEventType === "issues") {
+    if (isPullRequestIssuePayload(payload)) return null;
+    const issueNumber = parseGitHubIssueNumber(payload);
+    return {
+      provider: "github",
+      kind: "issue",
+      action,
+      rawEventType,
+      deliveryId,
+      repository,
+      issueNumber,
+      issueLabel: parseGitHubIssueLabel(payload),
+      timestamp: parseWebhookTimestamp(
+        (payload["issue"] as Record<string, unknown> | undefined)?.["updated_at"] ??
+          payload["updated_at"],
       ),
       data: payload,
     };

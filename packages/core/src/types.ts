@@ -705,7 +705,14 @@ export interface SCMWebhookVerificationResult {
   eventType?: string;
 }
 
-export type SCMWebhookEventKind = "pull_request" | "ci" | "review" | "comment" | "push" | "unknown";
+export type SCMWebhookEventKind =
+  | "pull_request"
+  | "ci"
+  | "review"
+  | "comment"
+  | "push"
+  | "issue"
+  | "unknown";
 
 export interface SCMWebhookEvent {
   provider: string;
@@ -719,6 +726,8 @@ export interface SCMWebhookEvent {
     name: string;
   };
   prNumber?: number;
+  issueNumber?: number;
+  issueLabel?: string;
   branch?: string;
   sha?: string;
   timestamp?: Date;
@@ -1247,6 +1256,12 @@ export interface SCMWebhookConfig {
   eventHeader?: string;
   deliveryHeader?: string;
   maxBodyBytes?: number;
+  autoImplement?: SCMWebhookAutoImplementConfig;
+}
+
+export interface SCMWebhookAutoImplementConfig {
+  enabled?: boolean;
+  label?: string;
 }
 
 export interface NotifierConfig {

@@ -330,6 +330,54 @@ describe("Config Validation - SCM webhook contract", () => {
       }),
     ).toThrow();
   });
+
+  it("accepts scm webhook autoImplement config", () => {
+    const config = validateConfig({
+      projects: {
+        proj1: {
+          path: "/repos/test",
+          repo: "org/test",
+          defaultBranch: "main",
+          scm: {
+            plugin: "github",
+            webhook: {
+              autoImplement: {
+                enabled: true,
+                label: "ao",
+              },
+            },
+          },
+        },
+      },
+    });
+
+    expect(config.projects["proj1"]?.scm?.webhook?.autoImplement).toEqual({
+      enabled: true,
+      label: "ao",
+    });
+  });
+
+  it("rejects enabled scm webhook autoImplement without a label", () => {
+    expect(() =>
+      validateConfig({
+        projects: {
+          proj1: {
+            path: "/repos/test",
+            repo: "org/test",
+            defaultBranch: "main",
+            scm: {
+              plugin: "github",
+              webhook: {
+                autoImplement: {
+                  enabled: true,
+                },
+              },
+            },
+          },
+        },
+      }),
+    ).toThrow(/autoImplement\.label/i);
+  });
 });
 
 describe("Config Schema Validation", () => {
