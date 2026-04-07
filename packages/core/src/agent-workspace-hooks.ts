@@ -208,6 +208,7 @@ esac
  * Detects:
  * - git checkout -b <branch> / git switch -c <branch>  (new branch)
  * - git checkout <branch> / git switch <branch>         (existing feature branch)
+ * - git branch -m|-M [<old>] <new>                      (branch rename)
  *
  * For existing branch switches, only updates if the branch name looks like a
  * feature branch (contains / or -) to avoid noise from checkout of commits/tags.
@@ -242,6 +243,14 @@ if [[ \$exit_code -eq 0 ]]; then
       ;;
     switch/-c)
       update_ao_metadata branch "\$3"
+      ;;
+    branch/-m|branch/-M)
+      # git branch -m <new> or git branch -m <old> <new>
+      if [[ -n "\$4" ]]; then
+        update_ao_metadata branch "\$4"
+      elif [[ -n "\$3" ]]; then
+        update_ao_metadata branch "\$3"
+      fi
       ;;
     checkout/*|switch/*)
       # Existing branch switch — only track feature-looking branches (contain / or -)
