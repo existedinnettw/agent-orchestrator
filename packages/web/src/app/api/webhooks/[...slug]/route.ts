@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getServices } from "@/lib/services";
+import { getServices, pollBacklog, startBacklogPoller } from "@/lib/services";
 import {
   buildWebhookRequest,
   eventMatchesProject,
@@ -12,6 +12,7 @@ export const dynamic = "force-dynamic";
 export async function POST(request: Request): Promise<Response> {
   try {
     const services = await getServices();
+    startBacklogPoller();
     const path = new URL(request.url).pathname;
     const candidates = findWebhookProjects(services.config, services.registry, path);
 
@@ -98,6 +99,10 @@ export async function POST(request: Request): Promise<Response> {
         { status: 401 },
       );
     }
+
+    // Run a backlog pass on verified SCM events so issue label changes can
+    // trigger session claims immediately instead of waiting for the poll timer.
+    await pollBacklog();
 
     return NextResponse.json(
       {

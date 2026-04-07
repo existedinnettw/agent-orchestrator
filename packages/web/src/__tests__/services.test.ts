@@ -81,14 +81,30 @@ describe("services", () => {
       notificationRouting: { urgent: [], action: [], warning: [], info: [] },
       reactions: {},
     });
-    mockCreateSessionManager.mockReturnValue({});
+    mockCreateSessionManager.mockReturnValue({
+      list: vi.fn().mockResolvedValue([]),
+    });
     delete (globalThis as typeof globalThis & { _aoServices?: unknown })._aoServices;
     delete (globalThis as typeof globalThis & { _aoServicesInit?: unknown })._aoServicesInit;
+    const backlogGlobals = globalThis as typeof globalThis & {
+      _aoBacklogStarted?: boolean;
+      _aoBacklogTimer?: ReturnType<typeof setInterval>;
+    };
+    if (backlogGlobals._aoBacklogTimer) clearInterval(backlogGlobals._aoBacklogTimer);
+    delete backlogGlobals._aoBacklogStarted;
+    delete backlogGlobals._aoBacklogTimer;
   });
 
   afterEach(() => {
     delete (globalThis as typeof globalThis & { _aoServices?: unknown })._aoServices;
     delete (globalThis as typeof globalThis & { _aoServicesInit?: unknown })._aoServicesInit;
+    const backlogGlobals = globalThis as typeof globalThis & {
+      _aoBacklogStarted?: boolean;
+      _aoBacklogTimer?: ReturnType<typeof setInterval>;
+    };
+    if (backlogGlobals._aoBacklogTimer) clearInterval(backlogGlobals._aoBacklogTimer);
+    delete backlogGlobals._aoBacklogStarted;
+    delete backlogGlobals._aoBacklogTimer;
   });
 
   it("registers the OpenCode agent plugin with web services", async () => {
@@ -148,11 +164,25 @@ describe("pollBacklog", () => {
 
     delete (globalThis as typeof globalThis & { _aoServices?: unknown })._aoServices;
     delete (globalThis as typeof globalThis & { _aoServicesInit?: unknown })._aoServicesInit;
+    const backlogGlobals = globalThis as typeof globalThis & {
+      _aoBacklogStarted?: boolean;
+      _aoBacklogTimer?: ReturnType<typeof setInterval>;
+    };
+    if (backlogGlobals._aoBacklogTimer) clearInterval(backlogGlobals._aoBacklogTimer);
+    delete backlogGlobals._aoBacklogStarted;
+    delete backlogGlobals._aoBacklogTimer;
   });
 
   afterEach(() => {
     delete (globalThis as typeof globalThis & { _aoServices?: unknown })._aoServices;
     delete (globalThis as typeof globalThis & { _aoServicesInit?: unknown })._aoServicesInit;
+    const backlogGlobals = globalThis as typeof globalThis & {
+      _aoBacklogStarted?: boolean;
+      _aoBacklogTimer?: ReturnType<typeof setInterval>;
+    };
+    if (backlogGlobals._aoBacklogTimer) clearInterval(backlogGlobals._aoBacklogTimer);
+    delete backlogGlobals._aoBacklogStarted;
+    delete backlogGlobals._aoBacklogTimer;
   });
 
   it("removes agent:backlog label when claiming an issue", async () => {

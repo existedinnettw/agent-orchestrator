@@ -94,6 +94,9 @@ async function initServices(): Promise<Services> {
 
   const services = { config, registry, sessionManager, lifecycleManager };
   globalForServices._aoServices = services;
+  // Start the backlog poller after the singleton is cached so the
+  // immediate poll does not race a second services initialization.
+  startBacklogPoller();
   return services;
 }
 
