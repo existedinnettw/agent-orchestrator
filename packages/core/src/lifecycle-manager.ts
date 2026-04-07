@@ -11,6 +11,8 @@
  */
 
 import { randomUUID } from "node:crypto";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
 import {
   SESSION_STATUS,
   PR_STATE,
@@ -41,6 +43,8 @@ import { getSessionsDir } from "./paths.js";
 import { createCorrelationId, createProjectObserver } from "./observability.js";
 import { resolveNotifierTarget } from "./notifier-resolution.js";
 import { resolveAgentSelection, resolveSessionRole } from "./agent-selection.js";
+
+const execFileAsync = promisify(execFile);
 
 /** Parse a duration string like "10m", "30s", "1h" to milliseconds. */
 function parseDuration(str: string): number {
@@ -79,6 +83,18 @@ function inferPriority(type: EventType): EventPriority {
     return "warning";
   }
   return "info";
+}
+
+async function getLiveWorkspaceBranch(workspacePath: string | null): Promise<string | null> {
+  if (!workspacePath) return null;
+
+  try {
+    const { stdout } = await execFileAsync("git", ["-C", workspacePath, "branch", "--show-current"]);
+    const branch = stdout.trim();
+    return branch || null;
+  } catch {
+    return null;
+  }
 }
 
 /** Create an OrchestratorEvent with defaults filled in. */
@@ -459,6 +475,13 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
       !session.id.endsWith("-orchestrator")
     ) {
       try {
+        const liveBranch = await getLiveWorkspaceBranch(session.workspacePath);
+        if (liveBranch && liveBranch !== session.branch) {
+          session.branch = liveBranch;
+          const sessionsDir = getSessionsDir(config.configPath, project.path);
+          updateMetadata(sessionsDir, session.id, { branch: liveBranch });
+        }
+
         const detectedPR = await scm.detectPR(session, project);
         if (detectedPR) {
           session.pr = detectedPR;

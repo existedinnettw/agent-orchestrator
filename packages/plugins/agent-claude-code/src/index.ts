@@ -172,6 +172,20 @@ if [[ "$clean_command" =~ ^git[[:space:]]+checkout[[:space:]]+([^[:space:]-]+[/-
   fi
 fi
 
+# Detect: git branch -m|-M [<old>] <new>
+if [[ "$clean_command" =~ ^git[[:space:]]+branch[[:space:]]+-M?[[:space:]]+([^[:space:]]+)([[:space:]]+([^[:space:]]+))? ]]; then
+  branch="\${BASH_REMATCH[3]}"
+  if [[ -z "$branch" ]]; then
+    branch="\${BASH_REMATCH[1]}"
+  fi
+
+  if [[ -n "$branch" && "$branch" != "HEAD" && "$branch" == *[/-]* ]]; then
+    update_metadata_key "branch" "$branch"
+    echo '{"systemMessage": "Updated metadata: branch = '"$branch"'"}'
+    exit 0
+  fi
+fi
+
 # Detect: gh pr merge
 if [[ "$clean_command" =~ ^gh[[:space:]]+pr[[:space:]]+merge ]]; then
   update_metadata_key "status" "merged"
