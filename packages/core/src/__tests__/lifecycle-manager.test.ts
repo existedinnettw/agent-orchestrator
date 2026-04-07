@@ -1,4 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+import { execFileSync } from "node:child_process";
+import { mkdirSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import { createLifecycleManager } from "../lifecycle-manager.js";
 import { createSessionManager } from "../session-manager.js";
 import { writeMetadata, readMetadataRaw } from "../metadata.js";
@@ -40,6 +43,17 @@ beforeEach(() => {
 afterEach(() => {
   env.cleanup();
 });
+
+function createGitWorktreeWithBranch(workspacePath: string, branch: string): void {
+  mkdirSync(workspacePath, { recursive: true });
+  execFileSync("git", ["init", "-b", "main"], { cwd: workspacePath });
+  execFileSync("git", ["config", "user.name", "AO Tests"], { cwd: workspacePath });
+  execFileSync("git", ["config", "user.email", "ao-tests@example.com"], { cwd: workspacePath });
+  writeFileSync(join(workspacePath, "README.md"), "# test\n");
+  execFileSync("git", ["add", "README.md"], { cwd: workspacePath });
+  execFileSync("git", ["commit", "-m", "init"], { cwd: workspacePath });
+  execFileSync("git", ["checkout", "-b", branch], { cwd: workspacePath });
+}
 
 /** Helper: write standard session metadata and return a lifecycle manager */
 function setupCheck(
@@ -287,6 +301,91 @@ describe("check (single session)", () => {
     const meta = readMetadataRaw(env.sessionsDir, "app-1");
     expect(meta?.["pr"]).toBe(makePR().url);
     expect(lm.getStates().get("app-1")).toBe("stuck");
+  });
+
+  it("detects PRs from the live worktree branch when metadata branch is stale", async () => {
+    const workspacePath = join(env.tmpDir, "worker-ws");
+    createGitWorktreeWithBranch(workspacePath, "feat/12");
+
+    const mockSCM = createMockSCM({
+      detectPR: vi.fn().mockImplementation(async (sessionArg) => {
+        return sessionArg.branch === "feat/12" ? makePR({ branch: "feat/12" }) : null;
+      }),
+    });
+
+    const registry = createMockRegistry({
+      runtime: plugins.runtime,
+      agent: plugins.agent,
+      scm: mockSCM,
+    });
+
+    const lm = setupCheck("app-1", {
+      session: makeSession({
+        status: "working",
+        branch: "feat/issue-12",
+        workspacePath,
+        pr: null,
+        metadata: { agent: "mock-agent" },
+      }),
+      metaOverrides: {
+        branch: "feat/issue-12",
+        worktree: workspacePath,
+        agent: "mock-agent",
+      },
+      registry,
+    });
+
+    await lm.check("app-1");
+
+    expect(mockSCM.detectPR).toHaveBeenCalledOnce();
+    expect(vi.mocked(mockSCM.detectPR).mock.calls[0]?.[0].branch).toBe("feat/12");
+
+    const meta = readMetadataRaw(env.sessionsDir, "app-1");
+    expect(meta?.["branch"]).toBe("feat/12");
+    expect(meta?.["pr"]).toBe(makePR({ branch: "feat/12" }).url);
+    expect(lm.getStates().get("app-1")).toBe("pr_open");
+  });
+
+  it("falls back to metadata branch when live branch lookup fails", async () => {
+    const mockSCM = createMockSCM({
+      detectPR: vi.fn().mockImplementation(async (sessionArg) => {
+        return sessionArg.branch === "feat/issue-12"
+          ? makePR({ branch: "feat/issue-12" })
+          : null;
+      }),
+    });
+
+    const registry = createMockRegistry({
+      runtime: plugins.runtime,
+      agent: plugins.agent,
+      scm: mockSCM,
+    });
+
+    const lm = setupCheck("app-1", {
+      session: makeSession({
+        status: "working",
+        branch: "feat/issue-12",
+        workspacePath: join(env.tmpDir, "missing-worktree"),
+        pr: null,
+        metadata: { agent: "mock-agent" },
+      }),
+      metaOverrides: {
+        branch: "feat/issue-12",
+        worktree: join(env.tmpDir, "missing-worktree"),
+        agent: "mock-agent",
+      },
+      registry,
+    });
+
+    await lm.check("app-1");
+
+    expect(mockSCM.detectPR).toHaveBeenCalledOnce();
+    expect(vi.mocked(mockSCM.detectPR).mock.calls[0]?.[0].branch).toBe("feat/issue-12");
+
+    const meta = readMetadataRaw(env.sessionsDir, "app-1");
+    expect(meta?.["branch"]).toBe("feat/issue-12");
+    expect(meta?.["pr"]).toBe(makePR({ branch: "feat/issue-12" }).url);
+    expect(lm.getStates().get("app-1")).toBe("pr_open");
   });
 
   it("preserves stuck state when getActivityState throws", async () => {
