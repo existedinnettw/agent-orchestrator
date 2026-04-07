@@ -1579,6 +1579,7 @@ describe("shell wrapper content", () => {
   const agent = create();
 
   beforeEach(() => {
+    vi.clearAllMocks();
     // Force wrapper installation by making version marker miss
     mockReadFile.mockRejectedValue(new Error("ENOENT"));
   });
@@ -1708,6 +1709,13 @@ describe("shell wrapper content", () => {
     it("captures branch name from switch -c", async () => {
       const content = await getWrapperContent("git");
       expect(content).toContain("switch/-c");
+    });
+
+    it("captures branch name from branch -m rename", async () => {
+      const content = await getWrapperContent("git");
+      expect(content).toContain("branch/-m|branch/-M");
+      expect(content).toContain('update_ao_metadata branch "$4"');
+      expect(content).toContain('update_ao_metadata branch "$3"');
     });
 
     it("only updates metadata on success (exit code 0)", async () => {
