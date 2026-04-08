@@ -1262,6 +1262,11 @@ export interface SCMWebhookConfig {
 export interface SCMWebhookAutoImplementConfig {
   enabled?: boolean;
   label?: string;
+  catchUp?: SCMWebhookAutoImplementCatchUpConfig;
+}
+
+export interface SCMWebhookAutoImplementCatchUpConfig {
+  enabled?: boolean;
 }
 
 export interface NotifierConfig {

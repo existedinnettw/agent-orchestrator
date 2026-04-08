@@ -114,6 +114,11 @@ const SCMConfigSchema = z
           .object({
             enabled: z.boolean().default(false),
             label: z.string().min(1).optional(),
+            catchUp: z
+              .object({
+                enabled: z.boolean().default(false),
+              })
+              .optional(),
           })
           .superRefine((value, ctx) => {
             if (value.enabled && !value.label) {
