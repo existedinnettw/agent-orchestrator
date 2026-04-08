@@ -357,6 +357,65 @@ describe("Config Validation - SCM webhook contract", () => {
     });
   });
 
+  it("accepts scm webhook autoImplement catchUp config", () => {
+    const config = validateConfig({
+      projects: {
+        proj1: {
+          path: "/repos/test",
+          repo: "org/test",
+          defaultBranch: "main",
+          scm: {
+            plugin: "github",
+            webhook: {
+              autoImplement: {
+                enabled: true,
+                label: "ao",
+                catchUp: {
+                  enabled: true,
+                },
+              },
+            },
+          },
+        },
+      },
+    });
+
+    expect(config.projects["proj1"]?.scm?.webhook?.autoImplement).toEqual({
+      enabled: true,
+      label: "ao",
+      catchUp: {
+        enabled: true,
+      },
+    });
+  });
+
+  it("defaults scm webhook autoImplement catchUp to disabled when omitted", () => {
+    const config = validateConfig({
+      projects: {
+        proj1: {
+          path: "/repos/test",
+          repo: "org/test",
+          defaultBranch: "main",
+          scm: {
+            plugin: "github",
+            webhook: {
+              autoImplement: {
+                enabled: true,
+                label: "ao",
+              },
+            },
+          },
+        },
+      },
+    });
+
+    expect(config.projects["proj1"]?.scm?.webhook?.autoImplement).toEqual({
+      enabled: true,
+      label: "ao",
+    });
+    expect(config.projects["proj1"]?.scm?.webhook?.autoImplement?.catchUp).toBeUndefined();
+  });
+
   it("rejects enabled scm webhook autoImplement without a label", () => {
     expect(() =>
       validateConfig({

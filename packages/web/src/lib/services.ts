@@ -57,6 +57,7 @@ export interface Services {
 const globalForServices = globalThis as typeof globalThis & {
   _aoServices?: Services;
   _aoServicesInit?: Promise<Services>;
+  _aoAutoImplementCatchUp?: Promise<void>;
 };
 
 /** Get (or lazily initialize) the core services singleton. */
@@ -96,9 +97,72 @@ async function initServices(): Promise<Services> {
   const lifecycleManager = createLifecycleManager({ config, registry, sessionManager });
   lifecycleManager.start(30_000);
 
+  if (!globalForServices._aoAutoImplementCatchUp) {
+    globalForServices._aoAutoImplementCatchUp = catchUpAutoImplementIssues(
+      config,
+      registry,
+      sessionManager,
+    ).catch((err) => {
+      globalForServices._aoAutoImplementCatchUp = undefined;
+      throw err;
+    });
+  }
+  await globalForServices._aoAutoImplementCatchUp;
+
   const services = { config, registry, sessionManager, lifecycleManager };
   globalForServices._aoServices = services;
   return services;
+}
+
+async function catchUpAutoImplementIssues(
+  config: OrchestratorConfig,
+  registry: PluginRegistry,
+  sessionManager: OpenCodeSessionManager,
+): Promise<void> {
+  const sessions = await sessionManager.list();
+  const activeIssueKeys = new Set(
+    sessions
+      .filter((session) => session.issueId && !TERMINAL_STATUSES.has(session.status))
+      .map((session) => `${session.projectId}:${session.issueId}`.toLowerCase()),
+  );
+
+  for (const [projectId, project] of Object.entries(config.projects)) {
+    const autoImplement = project.scm?.webhook?.autoImplement;
+    if (
+      autoImplement?.enabled !== true ||
+      autoImplement.catchUp?.enabled !== true ||
+      !autoImplement.label ||
+      !project.tracker?.plugin
+    ) {
+      continue;
+    }
+
+    const tracker = registry.get<Tracker>("tracker", project.tracker.plugin);
+    if (!tracker?.listIssues) continue;
+
+    let issues: Issue[];
+    try {
+      issues = await tracker.listIssues(
+        { state: "open", labels: [autoImplement.label], limit: 100 },
+        project,
+      );
+    } catch (err) {
+      console.error(`[auto-implement] Failed to list catch-up issues for ${projectId}:`, err);
+      continue;
+    }
+
+    for (const issue of issues) {
+      const issueKey = `${projectId}:${issue.id}`.toLowerCase();
+      if (activeIssueKeys.has(issueKey)) continue;
+
+      try {
+        await sessionManager.spawn({ projectId, issueId: issue.id });
+        activeIssueKeys.add(issueKey);
+      } catch (err) {
+        console.error(`[auto-implement] Failed to spawn catch-up issue ${issue.id}:`, err);
+      }
+    }
+  }
 }
 
 // ---------------------------------------------------------------------------
